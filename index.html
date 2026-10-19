@@ -100,9 +100,10 @@ tbody td:first-child{text-align:right;padding-right:10px}
 
 .switch-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .switch-row .lbl{font-weight:700}
-.switch{position:relative;width:52px;height:30px;flex:none}
+.switch{position:relative;width:52px;height:30px;flex:none;display:block;cursor:pointer}
 .switch input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
-.switch .trk{position:absolute;inset:0;background:var(--rule);border-radius:999px;transition:background .18s}
+/* the track is painted above the checkbox, so it must not swallow the click */
+.switch .trk{position:absolute;inset:0;background:var(--rule);border-radius:999px;transition:background .18s;pointer-events:none}
 .switch .trk::after{content:"";position:absolute;top:3px;right:3px;width:24px;height:24px;background:#fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .18s}
 .switch input:checked + .trk{background:var(--green)}
 .switch input:checked + .trk::after{transform:translateX(-22px)}
@@ -198,8 +199,8 @@ tbody td:first-child{text-align:right;padding-right:10px}
       <div class="vat-card">
         <h2>ضريبة المبيعات</h2>
         <div class="switch-row">
-          <span class="lbl">إضافة الضريبة للإجمالي</span>
-          <span class="switch no-pdf"><input type="checkbox" id="vatOn"><span class="trk"></span></span>
+          <label class="lbl" for="vatOn">إضافة الضريبة للإجمالي</label>
+          <label class="switch no-pdf"><input type="checkbox" id="vatOn" aria-label="إضافة الضريبة للإجمالي"><span class="trk"></span></label>
         </div>
         <div class="rate-row" id="rateRow">
           <label for="rate">نسبة الضريبة</label>
