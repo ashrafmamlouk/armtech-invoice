@@ -100,9 +100,10 @@ tbody td:first-child{text-align:right;padding-right:10px}
 
 .switch-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .switch-row .lbl{font-weight:700}
-.switch{position:relative;width:52px;height:30px;flex:none}
+.switch{position:relative;width:52px;height:30px;flex:none;display:block;cursor:pointer}
 .switch input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
-.switch .trk{position:absolute;inset:0;background:var(--rule);border-radius:999px;transition:background .18s}
+/* the track is painted above the checkbox, so it must not swallow the click */
+.switch .trk{position:absolute;inset:0;background:var(--rule);border-radius:999px;transition:background .18s;pointer-events:none}
 .switch .trk::after{content:"";position:absolute;top:3px;right:3px;width:24px;height:24px;background:#fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .18s}
 .switch input:checked + .trk{background:var(--green)}
 .switch input:checked + .trk::after{transform:translateX(-22px)}
@@ -198,8 +199,8 @@ tbody td:first-child{text-align:right;padding-right:10px}
       <div class="vat-card">
         <h2>ضريبة المبيعات</h2>
         <div class="switch-row">
-          <span class="lbl">إضافة الضريبة للإجمالي</span>
-          <span class="switch no-pdf"><input type="checkbox" id="vatOn"><span class="trk"></span></span>
+          <label class="lbl" for="vatOn">إضافة الضريبة للإجمالي</label>
+          <label class="switch no-pdf"><input type="checkbox" id="vatOn" aria-label="إضافة الضريبة للإجمالي"><span class="trk"></span></label>
         </div>
         <div class="rate-row" id="rateRow">
           <label for="rate">نسبة الضريبة</label>
@@ -649,7 +650,16 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
 const $ = (s, r = document) => r.querySelector(s);
 const rowsEl = $('#rows');
 const fmt = n => (Math.round((n + Number.EPSILON) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-const toNum = v => { const n = parseFloat(String(v).replace(/[^\d.-]/g, '')); return isFinite(n) ? n : 0; };
+/* Arabic-Indic digits (٠-٩), Persian digits (۰-۹) and Arabic separators (٫ ٬)
+   are what Arabic phone keyboards type; normalize them to ASCII before parsing. */
+function normalizeNum(v) {
+  return String(v)
+    .replace(/[\u0660-\u0669]/g, d => d.charCodeAt(0) - 0x0660)
+    .replace(/[\u06F0-\u06F9]/g, d => d.charCodeAt(0) - 0x06F0)
+    .replace(/\u066B/g, '.')
+    .replace(/\u066C/g, '');
+}
+const toNum = v => { const n = parseFloat(normalizeNum(v).replace(/[^\d.-]/g, '')); return isFinite(n) ? n : 0; };
 
 /* ---------------- table rows ---------------- */
 let rowId = 0;
@@ -689,6 +699,16 @@ function recalc() {
   $('#rateRow').classList.toggle('off', !vatOn);
 }
 rowsEl.addEventListener('input', e => { if (e.target.matches('.qty, .price')) recalc(); });
+/* Some mobile keyboards only commit the final value on blur; when that happens,
+   recalc and convert Arabic digits to ASCII so the printed invoice is consistent. */
+function tidyNumField(el) {
+  const clean = normalizeNum(el.value).replace(/[^\d.-]/g, '');
+  if (clean !== el.value) el.value = clean;
+}
+rowsEl.addEventListener('focusout', e => {
+  if (!e.target.matches('.qty, .price')) return;
+  tidyNumField(e.target); recalc();
+});
 rowsEl.addEventListener('click', e => {
   const b = e.target.closest('.row-del'); if (!b) return;
   b.closest('tr').remove();
@@ -697,6 +717,7 @@ rowsEl.addEventListener('click', e => {
 $('#addRow').addEventListener('click', () => { const tr = addRow(); $('.item-in', tr).focus(); });
 $('#vatOn').addEventListener('change', recalc);
 $('#rate').addEventListener('input', recalc);
+$('#rate').addEventListener('change', () => { tidyNumField($('#rate')); recalc(); });
 $('#resetAll').addEventListener('click', () => {
   if (!confirm('هل تريد تفريغ كل الأصناف؟')) return;
   rowsEl.innerHTML = ''; updateRowCount(); addRow(); recalc();
