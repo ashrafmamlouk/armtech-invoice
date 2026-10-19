@@ -169,6 +169,32 @@ tbody td:first-child{text-align:right;padding-right:10px}
   .brand-logo{height:42px}
   .brand-sub{font-size:.82rem}
 }
+
+/* ---------------- PDF export ----------------
+   The PDF is rendered from a clone marked .pdf-export, laid out at a fixed
+   760px width. These rules win over the mobile @media block above, so the PDF
+   is always the proper table layout — even when the page is opened on a phone. */
+.pdf-export{padding:0;margin:0;direction:rtl;background:#fff}
+.pdf-export table{display:table;width:100%;border-collapse:collapse;table-layout:fixed}
+.pdf-export thead{display:table-header-group;position:static;left:auto;top:auto}
+.pdf-export tbody{display:table-row-group}
+.pdf-export tr{display:table-row;border:none;padding:0;position:static}
+.pdf-export th,.pdf-export td{display:table-cell;border-bottom:1px solid var(--rule);padding:11px 12px;text-align:center;vertical-align:middle}
+.pdf-export thead th{background:var(--gold-pale);color:var(--gold-deep);font-weight:800;font-size:15px;border-bottom:1px solid var(--rule)}
+.pdf-export thead th:first-child,
+.pdf-export tbody td:first-child{text-align:right}
+.pdf-export tbody td::before{content:none;display:none}
+.pdf-export tbody tr:nth-child(even){background:var(--ledger)}
+/* typed values become plain text in the PDF: long names wrap onto extra lines
+   instead of being clipped inside a 28px-wide input box */
+.pdf-export .item-text{
+  display:block;text-align:right;font-weight:700;font-size:16px;line-height:1.75;
+  white-space:normal;overflow-wrap:anywhere;word-break:break-word;
+}
+.pdf-export .num-text{display:block;text-align:center;font-weight:700;font-size:16px;line-height:1.75}
+.pdf-export .line-total{display:block;font-weight:800;font-size:16px;line-height:1.75;white-space:normal;overflow-wrap:anywhere}
+.pdf-export .summary{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.pdf-export .tline{display:flex;justify-content:space-between;align-items:baseline}
 </style>
 </head>
 <body>
@@ -740,23 +766,55 @@ function setBusy(btn, busy, label) {
   if (busy) { btn.dataset.label = btn.querySelector('svg') ? btn.innerHTML : btn.innerHTML; btn.dataset.wasHtml = btn.innerHTML; btn.textContent = label; }
   else if (btn.dataset.wasHtml) { btn.innerHTML = btn.dataset.wasHtml; }
 }
-async function makePdfBlob() {
-  // Render from an off-screen clone at a fixed desktop width (760px), so the PDF
-  // always shows the full table layout at a consistent, legible size — never the
-  // narrow mobile "stacked card" layout, no matter which device generated it.
-  const PDF_STAGE_WIDTH = 760;
-  const source = $('#invoiceArea');
-  const clone = source.cloneNode(true);
+const PDF_STAGE_WIDTH = 760;
+const PDF_SCALE = 3; // 760 * 3 = 2280px wide render → sharp, readable text in the PDF
+
+/* Build a print-ready copy of the invoice:
+   - drops on-screen-only controls (.no-pdf), including the delete-button column
+   - turns typed values into plain text, so a long item name wraps onto extra
+     lines instead of being clipped inside a narrow input box
+   - marks itself .pdf-export so the desktop table layout always applies   */
+function buildPdfClone() {
+  const clone = $('#invoiceArea').cloneNode(true);
+  clone.classList.add('pdf-export');
   clone.querySelectorAll('.no-pdf').forEach(el => el.remove());
+  // the delete button's 28px column is declared in <colgroup>, not in the <td>,
+  // so it has to be removed explicitly — otherwise it squeezes the item column
+  const cols = clone.querySelectorAll('colgroup > col');
+  if (cols.length) cols[0].remove();
+  const toText = (el, cls, fallback) => {
+    const span = document.createElement('span');
+    span.className = cls;
+    const value = el.value.trim();
+    span.textContent = value === '' ? fallback : value;
+    el.replaceWith(span);
+  };
+  clone.querySelectorAll('.item-in').forEach(el => toText(el, 'item-text', '—'));
+  clone.querySelectorAll('input.qty, input.price').forEach(el => toText(el, 'num-text', '0'));
+  return clone;
+}
+
+async function makePdfBlob() {
+  // Render from an off-screen clone at a fixed desktop width, so the PDF always
+  // shows the full table layout — never the narrow mobile "stacked card" one.
+  const clone = buildPdfClone();
   const stage = document.createElement('div');
   stage.style.cssText = `position:fixed;left:-10000px;top:0;width:${PDF_STAGE_WIDTH}px;background:#fff;`;
   stage.appendChild(clone);
   document.body.appendChild(stage);
   // let layout + webfont settle before the screenshot
   await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (e) {} }
   let canvas;
   try {
-    canvas = await html2canvas(clone, { scale: 2, backgroundColor: '#ffffff', useCORS: true, width: PDF_STAGE_WIDTH, windowWidth: PDF_STAGE_WIDTH });
+    canvas = await html2canvas(clone, {
+      scale: PDF_SCALE,
+      backgroundColor: '#ffffff',
+      useCORS: true,
+      logging: false,
+      width: PDF_STAGE_WIDTH,
+      windowWidth: PDF_STAGE_WIDTH
+    });
   } finally {
     stage.remove();
   }
@@ -768,12 +826,12 @@ async function makePdfBlob() {
   const imgH = canvas.height * imgW / canvas.width;
   const imgData = canvas.toDataURL('image/png');
   let heightLeft = imgH, position = 0;
-  pdf.addImage(imgData, 'PNG', 0, position, imgW, imgH);
+  pdf.addImage(imgData, 'PNG', 0, position, imgW, imgH, undefined, 'FAST');
   heightLeft -= pageH;
   while (heightLeft > 0) {
     position -= pageH;
     pdf.addPage();
-    pdf.addImage(imgData, 'PNG', 0, position, imgW, imgH);
+    pdf.addImage(imgData, 'PNG', 0, position, imgW, imgH, undefined, 'FAST');
     heightLeft -= pageH;
   }
   return pdf.output('blob');
